@@ -422,11 +422,64 @@ static void clipboard_paste_selection(struct swappy_state *state) {
   }
 }
 
+/* Russian (JCUKEN) layout yields Cyrillic keyvals, which kills every Latin
+ * shortcut. Normalize Cyrillic keys to the Latin letter on the same physical
+ * key, so shortcuts work in any layout. Text entry is unaffected (text mode
+ * keeps using the raw event). */
+static guint keyval_to_latin(guint keyval) {
+  guint lower = gdk_keyval_to_lower(keyval);
+  guint latin = 0;
+  switch (lower) {
+    case GDK_KEY_Cyrillic_shorti: latin = GDK_KEY_q; break;
+    case GDK_KEY_Cyrillic_tse: latin = GDK_KEY_w; break;
+    case GDK_KEY_Cyrillic_u: latin = GDK_KEY_e; break;
+    case GDK_KEY_Cyrillic_ka: latin = GDK_KEY_r; break;
+    case GDK_KEY_Cyrillic_ie: latin = GDK_KEY_t; break;
+    case GDK_KEY_Cyrillic_en: latin = GDK_KEY_y; break;
+    case GDK_KEY_Cyrillic_ghe: latin = GDK_KEY_u; break;
+    case GDK_KEY_Cyrillic_sha: latin = GDK_KEY_i; break;
+    case GDK_KEY_Cyrillic_shcha: latin = GDK_KEY_o; break;
+    case GDK_KEY_Cyrillic_ze: latin = GDK_KEY_p; break;
+    case GDK_KEY_Cyrillic_ha: latin = GDK_KEY_bracketleft; break;
+    case GDK_KEY_Cyrillic_hardsign: latin = GDK_KEY_bracketright; break;
+    case GDK_KEY_Cyrillic_ef: latin = GDK_KEY_a; break;
+    case GDK_KEY_Cyrillic_yeru: latin = GDK_KEY_s; break;
+    case GDK_KEY_Cyrillic_ve: latin = GDK_KEY_d; break;
+    case GDK_KEY_Cyrillic_a: latin = GDK_KEY_f; break;
+    case GDK_KEY_Cyrillic_pe: latin = GDK_KEY_g; break;
+    case GDK_KEY_Cyrillic_er: latin = GDK_KEY_h; break;
+    case GDK_KEY_Cyrillic_o: latin = GDK_KEY_j; break;
+    case GDK_KEY_Cyrillic_el: latin = GDK_KEY_k; break;
+    case GDK_KEY_Cyrillic_de: latin = GDK_KEY_l; break;
+    case GDK_KEY_Cyrillic_zhe: latin = GDK_KEY_semicolon; break;
+    case GDK_KEY_Cyrillic_e: latin = GDK_KEY_apostrophe; break;
+    case GDK_KEY_Cyrillic_ya: latin = GDK_KEY_z; break;
+    case GDK_KEY_Cyrillic_che: latin = GDK_KEY_x; break;
+    case GDK_KEY_Cyrillic_es: latin = GDK_KEY_c; break;
+    case GDK_KEY_Cyrillic_em: latin = GDK_KEY_v; break;
+    case GDK_KEY_Cyrillic_i: latin = GDK_KEY_b; break;
+    case GDK_KEY_Cyrillic_te: latin = GDK_KEY_n; break;
+    case GDK_KEY_Cyrillic_softsign: latin = GDK_KEY_m; break;
+    case GDK_KEY_Cyrillic_be: latin = GDK_KEY_comma; break;
+    case GDK_KEY_Cyrillic_yu: latin = GDK_KEY_period; break;
+    case GDK_KEY_Cyrillic_io: latin = GDK_KEY_grave; break;
+    default: break;
+  }
+  if (latin == 0) {
+    return keyval;
+  }
+  if (keyval != lower) {
+    latin = gdk_keyval_to_upper(latin);
+  }
+  return latin;
+}
+
 void window_keypress_handler(GtkWidget *widget, GdkEventKey *event,
                              struct swappy_state *state) {
+  guint keyval = keyval_to_latin(event->keyval);
   if (state->temp_paint && state->mode == SWAPPY_PAINT_MODE_TEXT) {
     /* ctrl-v: paste */
-    if (event->state & GDK_CONTROL_MASK && event->keyval == GDK_KEY_v) {
+    if (event->state & GDK_CONTROL_MASK && keyval == GDK_KEY_v) {
       clipboard_paste_selection(state);
     } else {
       paint_update_temporary_text(state, event);
@@ -435,7 +488,7 @@ void window_keypress_handler(GtkWidget *widget, GdkEventKey *event,
     return;
   }
   if (event->state & GDK_CONTROL_MASK) {
-    switch (event->keyval) {
+    switch (keyval) {
       case GDK_KEY_c:
         clipboard_copy_drawing_area_to_selection(state);
         break;
@@ -459,7 +512,7 @@ void window_keypress_handler(GtkWidget *widget, GdkEventKey *event,
         break;
     }
   } else {
-    switch (event->keyval) {
+    switch (keyval) {
       case GDK_KEY_Escape:
       case GDK_KEY_q:
         maybe_save_output_file(state);
@@ -873,6 +926,13 @@ static bool load_layout(struct swappy_state *state) {
 
   GtkWidget *area =
       GTK_WIDGET(gtk_builder_get_object(builder, "painting-area"));
+
+  /* A drag gesture on the canvas makes GtkWindow's built-in drag gesture
+   * back off, so strokes are not hijacked as window moves
+   * (xdg_toplevel.move). Painting itself keeps flowing through the legacy
+   * button/motion handlers connected in swappy.glade. */
+  GtkGesture *canvas_drag = gtk_gesture_drag_new(area);
+  (void)canvas_drag;
 
   state->ui->painting_box =
       GTK_BOX(gtk_builder_get_object(builder, "painting-box"));
