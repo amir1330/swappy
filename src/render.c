@@ -447,21 +447,40 @@ static void render_blur(cairo_t *cr, struct swappy_paint *paint) {
 static void render_brush(cairo_t *cr, struct swappy_paint_brush brush) {
   cairo_set_source_rgba(cr, brush.r, brush.g, brush.b, brush.a);
   cairo_set_line_width(cr, brush.w);
-  cairo_set_line_join(cr, CAIRO_LINE_JOIN_BEVEL);
+  cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+  cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
 
   guint l = g_list_length(brush.points);
 
   if (l == 1) {
     struct swappy_point *point = g_list_nth_data(brush.points, 0);
-    cairo_rectangle(cr, point->x, point->y, brush.w, brush.w);
+    cairo_arc(cr, point->x, point->y, brush.w / 2.0, 0, 2 * G_PI);
     cairo_fill(cr);
-  } else {
-    for (GList *elem = brush.points; elem; elem = elem->next) {
-      struct swappy_point *point = elem->data;
-      cairo_line_to(cr, point->x, point->y);
-    }
-    cairo_stroke(cr);
+    return;
   }
+
+  /* Oldest point first (the list is newest-first). */
+  struct swappy_point **pts = g_new(struct swappy_point *, l);
+  guint i = l;
+  for (GList *elem = brush.points; elem; elem = elem->next) {
+    pts[--i] = elem->data;
+  }
+
+  /* Catmull-Rom spline through the points, emitted as Bezier segments,
+   * so fast strokes stay smooth instead of polygonal. */
+  cairo_move_to(cr, pts[0]->x, pts[0]->y);
+  for (guint k = 0; k + 1 < l; ++k) {
+    struct swappy_point *p0 = pts[k == 0 ? 0 : k - 1];
+    struct swappy_point *p1 = pts[k];
+    struct swappy_point *p2 = pts[k + 1];
+    struct swappy_point *p3 = pts[k + 2 >= l ? l - 1 : k + 2];
+    cairo_curve_to(cr, p1->x + (p2->x - p0->x) / 6.0,
+                   p1->y + (p2->y - p0->y) / 6.0,
+                   p2->x - (p3->x - p1->x) / 6.0,
+                   p2->y - (p3->y - p1->y) / 6.0, p2->x, p2->y);
+  }
+  cairo_stroke(cr);
+  g_free(pts);
 }
 
 static void render_image(cairo_t *cr, struct swappy_state *state) {
